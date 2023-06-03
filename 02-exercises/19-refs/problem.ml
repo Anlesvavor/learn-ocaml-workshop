@@ -18,7 +18,18 @@ let () =
    let's iterate over the list and explicitly maintain refs of the minimum and
    maximum values seen so far instead. *)
 let min_and_max lst =
-  failwith "For you to implement"
+  assert (List.length lst > 0);
+  let min = ref Int.max_value in
+  let max = ref Int.min_value in
+  List.iter lst ~f:(fun x ->
+      (match x <= !min with
+       | true ->  min :=  x
+       | false ->  ());
+      (match x >= !max with
+       | true ->  max :=  x
+       | false ->  ());
+    );
+  (!min, !max)
 
 (* By the way, can you guess how a [ref] is implemented under the hood? 
 

@@ -31,7 +31,10 @@ let%test _ =
 (* Implement the function [safe_divide ~dividend ~divisor], which takes two
    [int]s and returns an [int option]. It should return [None] if [divisor = 0],
    and otherwise return [Some x] where [x] is the division result *)
-let safe_divide ~dividend ~divisor = failwith "For you to implement"
+let safe_divide ~dividend ~divisor =
+  match divisor with
+  | 0 -> None
+  | _ -> Some (dividend / divisor)
 
 let%test "Testing safe_divide..." =
   match (safe_divide ~dividend:3 ~divisor:2) with
@@ -47,7 +50,13 @@ let%test "Testing safe_divide..." =
    returns a [string option] that is:
    - [Some x], where x is the concatenation of the two strings, if they both exist
    - [None] if either of the strings is [None]  *)
-let option_concatenate string1 string2 = failwith "For you to implement" 
+let option_concatenate string1 string2 =
+  match string1 with
+  | Some s1 -> (match string2 with
+      | Some s2 -> Some (s1 ^ s2)
+      | None -> None
+    )
+  | None -> None
 
 let%test "Testing option_concatenate..." =
   match option_concatenate (Some "hello") (Some "world") with
@@ -134,12 +143,12 @@ let labeled_concatenate ?(separator = "")  ~string1 ~string2 =
    runs successfully. *)
 
 (*  We could also define our [labeled_concatenate] function with an additional
-   [unit] argument at the end to allow us to erase the optional argument.
+    [unit] argument at the end to allow us to erase the optional argument.
 
-   Take a second to make sure this makes sense. Try writing a function signature
-   for [better_labeled_concatenate] in the mli, and make sure that this code
-   still compiles. *)
-let better_labeled_concatenate ?(separator = "") ~string1 ~string2 () = 
+    Take a second to make sure this makes sense. Try writing a function signature
+    for [better_labeled_concatenate] in the mli, and make sure that this code
+    still compiles. *)
+let better_labeled_concatenate ?(separator = "") ~string1 ~string2 () =
   string1 ^ separator ^ string2
 
 let () = 
