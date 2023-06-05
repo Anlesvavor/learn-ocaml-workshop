@@ -4,7 +4,10 @@ open Scaffold
 (* When you start the exercise, the compiler will complain that Frog.create,
  * World.create and create_frog are unused. You can remove this attribute once
  * you get going. *)
-[@@@warning "-32"]
+(* [@@@warning "-32"] *)
+
+let max_x = 9;;
+let max_y = 11;;
 
 module Orientation = struct
   type t =
@@ -14,36 +17,122 @@ module Orientation = struct
     | Left
 end
 
+module Faces = struct
+  type t = (Orientation.t * Image.t) list
+end
+
 module Frog = struct
   type t =
     { position : Position.t
     ; orientation : Orientation.t
+    ; faces: Faces.t
+    ; hit: bool
     } [@@deriving fields]
 
   let create = Fields.create
 end
 
+module Kind = struct
+  type t =
+    | Unsafe
+    | Safe
+end
+
+module Moving_Object = struct
+  type t =
+    { position: Position.t
+    ; orientation: Orientation.t
+    ; kind: Kind.t
+    ; faces: Faces.t
+    } [@@deriving fields]
+
+  let create = Fields.create
+
+  let move (obj : t) =
+    let p = obj.position in
+    let o = obj.orientation in
+    let delta = match o with
+    | Right -> if p.x < max_x then 1 else -max_x
+    | Left -> if 0 < p.x then -1 else max_x
+    | _ -> failwith "Not implemented"
+    in
+    let new_p = { p with x = p.x + delta } in
+    { obj with position = new_p }
+
+end
+
 module World = struct
   type t =
     { frog  : Frog.t
+    ; moving_objects : Moving_Object.t list
     } [@@deriving fields]
 
   let create = Fields.create
 end
 
 let create_frog () =
-  let x = Random.int 1 in
+  let x = Random.int max_x in
   let y = Random.int 1 in
   let position = Position.create ~x:x ~y:y in
-  Frog.create ~position:position ~orientation:Up
+  let faces =
+    [(Orientation.Up, Image.Frog_up)
+    ;(Orientation.Down, Image.Frog_down)
+    ;(Orientation.Right, Image.Frog_right)
+    ;(Orientation.Left, Image.Frog_left)
+    ]
+  in
+  Frog.create ~position:position ~orientation:Up ~faces:faces ~hit:false
 ;;
+
+let create_moving_object ?(kind=Kind.Safe) () =
+  let x = Random.int_incl 1 max_x in
+  let y = Random.int_incl 1 max_y in
+  let position = Position.create ~x:x ~y:y in
+  let faces =
+    [(Orientation.Left, Image.Car1_left)
+    ;(Orientation.Right, Image.Car1_right)
+    ]
+  in
+  Moving_Object.create
+    ~position:position
+    ~orientation:(if Random.bool () then Left else Right)
+    ~kind
+    ~faces
+;;
+
+let create_moving_hazard = create_moving_object ~kind:Unsafe
 
 let create () =
   let frog = create_frog () in
-  World.create ~frog:frog
+  let objects =
+    [create_moving_object ()
+    ]
+    @ List.init 15 ~f:(fun _ -> create_moving_hazard ())in
+  World.create ~frog:frog ~moving_objects:objects
 ;;
 
-let tick (world : World.t) = world
+let draw_image orientation faces : Image.t =
+  let face = List.find faces ~f:(fun (f_orientation, _) -> phys_equal orientation f_orientation) in
+  let _, image = match face with
+    | Some x -> x
+    | None -> failwith "Face not found!"
+  in
+  image
+
+let compute_colission (objects: Moving_Object.t list) (frog: Frog.t) : bool =
+  List.exists objects ~f:(fun obj ->
+    match obj.kind with
+    | Kind.Unsafe -> Position.equal obj.position frog.position
+    | Kind.Safe -> frog.hit
+  )
+
+
+let tick (world : World.t) =
+  let frog = world.frog in
+  let objects = world.moving_objects in
+  let hit = compute_colission objects frog in
+  let frog = { frog with hit = hit } in
+  World.create ~frog ~moving_objects:(List.map objects ~f:Moving_Object.move)
   (* failwith *)
   (*   "This function will end up getting called every timestep, which happens to \ *)
   (*    be set to 1 second for this game in the scaffold (so you can easily see \ *)
@@ -57,14 +146,23 @@ let handle_input (world : World.t) (key : Key.t) =
   let frog_position = world.frog.position in
   let frog_orientation = world.frog.orientation in
   let delta_x, delta_y, orientation = match key with
-  | Key.Arrow_down -> if frog_position.y >= 0 then (0, -1, Orientation.Down) else (0, 0, frog_orientation)
-  | Key.Arrow_up -> if frog_position.y < 10 then (0, 1, Orientation.Up) else (0, 0, frog_orientation)
-  | Key.Arrow_right -> if frog_position.x <= 10 then (1, 0, Orientation.Right) else (0, 0, frog_orientation)
+  | Key.Arrow_down -> if frog_position.y > 0 then (0, -1, Orientation.Down) else (0, 0, frog_orientation)
+  | Key.Arrow_up -> if frog_position.y < max_y then (0, 1, Orientation.Up) else (0, 0, frog_orientation)
+  | Key.Arrow_right -> if frog_position.x < max_x then (1, 0, Orientation.Right) else (0, 0, frog_orientation)
   | Key.Arrow_left -> if frog_position.x > 0 then (-1, 0, Orientation.Left) else (0, 0, frog_orientation)
   in
-  let new_frog_position = Position.create ~x:(frog_position.x + delta_x) ~y:(frog_position.y + delta_y) in
-  let new_frog = Frog.create ~position:new_frog_position ~orientation in
-  World.create ~frog:new_frog
+  let hit = compute_colission world.moving_objects world.frog in
+  let position = if hit then frog_position else
+    Position.create ~x:(frog_position.x + delta_x) ~y:(frog_position.y + delta_y)
+  in
+  let frog = Frog.create
+      ~position
+      ~orientation
+      ~hit
+      ~faces:world.frog.faces
+  in
+  (*  *World.create ~frog ~moving_objects:world.moving_objects*)
+  { world with frog }
   (*   This function will end up getting called whenever the player presses one of \ *)
   (*    the four arrow keys. What should the new state of the world be? Create and \ *)
   (*    return it based on the current state of the world (the [world] argument), \ *)
@@ -75,14 +173,16 @@ let handle_input (world : World.t) (key : Key.t) =
 
 let draw (world : World.t) =
   let frog_position = world.frog.position in
-  let frog_orientation = world.frog.orientation in
-  let image = match frog_orientation with
-    | Up -> Image.Frog_up
-    | Down -> Image.Frog_down
-    | Right -> Image.Frog_right
-    | Left -> Image.Frog_left
+  let frog_image = match world.frog.hit with
+    | false -> draw_image world.frog.orientation world.frog.faces
+    | true -> Image.skull_and_crossbones
   in
-  [(image, frog_position)]
+  let objects_images = List.map world.moving_objects ~f:(fun o ->
+      let image = draw_image o.orientation o.faces in
+      (image, o.position)
+    )
+  in
+  [(frog_image, frog_position)] @ objects_images
   (* failwith *)
   (*   "Return a list with a single item: a tuple consisting of one of the choices \ *)
   (*    in [Images.t] in [scaffold.mli]; and the current position of the [Frog]." *)

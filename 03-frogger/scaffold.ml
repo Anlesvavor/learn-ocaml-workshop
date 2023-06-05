@@ -6,8 +6,10 @@ module Position = struct
     ; y : int
     } [@@deriving fields, sexp]
 
-  let create = Fields.create
+  let create = Fields.create;;
+  let equal p q = (equal p.x q.x) && (equal p.y q.y);;
 end
+[@@deriving eq]
 
 module Image = struct
   type t =

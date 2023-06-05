@@ -31,6 +31,7 @@ module Position : sig
   [@@deriving fields, sexp]
 
   val create : x:int -> y:int -> t
+  val equal : t -> t -> bool
 end
 
 (** All these images are 1x1. *)
