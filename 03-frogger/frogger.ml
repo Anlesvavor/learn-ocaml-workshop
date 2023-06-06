@@ -6,6 +6,9 @@ open Scaffold
  * you get going. *)
 (* [@@@warning "-32"] *)
 
+
+let () = Random.full_init[|1;25;6|]
+
 let max_x = 9;;
 let max_y = 11;;
 
@@ -26,7 +29,7 @@ module Frog = struct
     { position : Position.t
     ; orientation : Orientation.t
     ; faces: Faces.t
-    ; hit: bool
+    ; alive: bool
     } [@@deriving fields]
 
   let create = Fields.create
@@ -81,17 +84,22 @@ let create_frog () =
     ;(Orientation.Left, Image.Frog_left)
     ]
   in
-  Frog.create ~position:position ~orientation:Up ~faces:faces ~hit:false
+  Frog.create ~position:position ~orientation:Up ~faces:faces ~alive:true
 ;;
 
-let create_moving_object ?(kind=Kind.Safe) () =
-  let x = Random.int_incl 1 max_x in
-  let y = Random.int_incl 1 max_y in
+let create_moving_object ?(x=None) ?(y=None) ?(kind=Kind.Safe) () =
+  let x = match x with
+    | Some x -> x
+    | None -> Random.int_incl 1 max_x
+  in
+  let y = match y with
+    | Some y -> y
+    | None -> Random.int_incl 1 max_y
+  in
   let position = Position.create ~x:x ~y:y in
-  let faces =
-    [(Orientation.Left, Image.Car1_left)
-    ;(Orientation.Right, Image.Car1_right)
-    ]
+  let faces = match kind with
+    | Unsafe -> [(Orientation.Left, Image.Car1_left); (Orientation.Right, Image.Car1_right)]
+    | Safe -> [(Orientation.Left, Image.Log1);(Orientation.Right, Image.Log2)]
   in
   Moving_Object.create
     ~position:position
@@ -100,14 +108,25 @@ let create_moving_object ?(kind=Kind.Safe) () =
     ~faces
 ;;
 
-let create_moving_hazard = create_moving_object ~kind:Unsafe
+let create_moving_hazard y = create_moving_object ~y ~kind:Unsafe ()
+let create_moving_plarform x y = create_moving_object ~x ~y ~kind:Safe ()
 
 let create () =
   let frog = create_frog () in
+  (* let objects = *)
+  (*   [create_moving_object () *)
+  (*   ] *)
+  (*   @ List.init 15 ~f:(fun _ -> create_moving_hazard ())in *)
   let objects =
-    [create_moving_object ()
-    ]
-    @ List.init 15 ~f:(fun _ -> create_moving_hazard ())in
+    List.foldi Board.rows ~init:[] ~f:(fun i (acc : Moving_Object.t list) (row : Board.Row.t) ->
+      let y = Some i in
+      let x = Random.int_incl 1 max_x in
+      acc @ match row with
+      | Safe_strip -> []
+      | Road -> List.init 3 ~f:(fun _ -> create_moving_hazard y )
+      | River -> List.map [x;x+1;x+2] ~f:(fun x -> List.init 2 ~f:(fun _ -> create_moving_plarform (Some x) y )) |> List.join
+    )
+  in
   World.create ~frog:frog ~moving_objects:objects
 ;;
 
@@ -119,19 +138,49 @@ let draw_image orientation faces : Image.t =
   in
   image
 
-let compute_colission (objects: Moving_Object.t list) (frog: Frog.t) : bool =
-  List.exists objects ~f:(fun obj ->
-    match obj.kind with
-    | Kind.Unsafe -> Position.equal obj.position frog.position
-    | Kind.Safe -> frog.hit
-  )
+let compute_colission (objects: Moving_Object.t list) (frog: Frog.t) =
+  List.find objects ~f:(fun obj -> Position.equal obj.position frog.position)
+
+(* let compute_colission_death (objects: Moving_Object.t list) (frog: Frog.t) : bool = *)
+(*   List.exists objects ~f:(fun obj -> *)
+(*     match obj.kind with *)
+(*     | Kind.Unsafe -> Position.equal obj.position frog.position *)
+(*     | Kind.Safe -> frog.hit *)
+(*   ) *)
+
+let compute_terrain (position : Position.t) =
+  match List.nth Board.rows position.y with
+  | Some x -> x
+  | None -> failwith "Out of bounds"
+
+(* let compute_terrain_death (position : Position.t) = *)
+(*   match compute_terrain position with *)
+(*   | Safe_strip | Road -> false *)
+(*   | River -> true *)
+
+let is_alive (frog: Frog.t) (world: World.t) =
+  if not frog.alive then
+    false
+  else
+  let terrain = compute_terrain frog.position in
+  let colission = compute_colission world.moving_objects frog in
+  match (terrain, colission) with
+  | Safe_strip, _ -> true
+  | River, Some ({ kind = Safe; _ }) -> true
+  | River, None -> false
+  | Road, Some  ({ kind = Unsafe; _ }) -> false
+  | _, Some ({ kind = Safe; _ }) -> true
+  | _, Some ({ kind = Unsafe; _ }) -> false
+  | _, _ -> true
 
 
 let tick (world : World.t) =
   let frog = world.frog in
   let objects = world.moving_objects in
-  let hit = compute_colission objects frog in
-  let frog = { frog with hit = hit } in
+  (* let hit = compute_colission objects frog in *)
+  (* let hit = hit || compute_terrain_death world.frog.position in *)
+  let alive = is_alive frog world in
+  let frog = { frog with alive } in
   World.create ~frog ~moving_objects:(List.map objects ~f:Moving_Object.move)
   (* failwith *)
   (*   "This function will end up getting called every timestep, which happens to \ *)
@@ -151,14 +200,17 @@ let handle_input (world : World.t) (key : Key.t) =
   | Key.Arrow_right -> if frog_position.x < max_x then (1, 0, Orientation.Right) else (0, 0, frog_orientation)
   | Key.Arrow_left -> if frog_position.x > 0 then (-1, 0, Orientation.Left) else (0, 0, frog_orientation)
   in
-  let hit = compute_colission world.moving_objects world.frog in
-  let position = if hit then frog_position else
-    Position.create ~x:(frog_position.x + delta_x) ~y:(frog_position.y + delta_y)
+  (* let hit = compute_colission world.moving_objects world.frog in *)
+  (* let hit = hit || compute_terrain_death world.frog.position in *)
+  let alive = is_alive world.frog world in
+  let position = if alive
+    then Position.create ~x:(frog_position.x + delta_x) ~y:(frog_position.y + delta_y)
+    else frog_position
   in
   let frog = Frog.create
       ~position
       ~orientation
-      ~hit
+      ~alive
       ~faces:world.frog.faces
   in
   (*  *World.create ~frog ~moving_objects:world.moving_objects*)
@@ -173,16 +225,16 @@ let handle_input (world : World.t) (key : Key.t) =
 
 let draw (world : World.t) =
   let frog_position = world.frog.position in
-  let frog_image = match world.frog.hit with
-    | false -> draw_image world.frog.orientation world.frog.faces
-    | true -> Image.skull_and_crossbones
+  let frog_image = match world.frog.alive with
+    | true -> draw_image world.frog.orientation world.frog.faces
+    | false -> Image.skull_and_crossbones
   in
   let objects_images = List.map world.moving_objects ~f:(fun o ->
       let image = draw_image o.orientation o.faces in
       (image, o.position)
     )
   in
-  [(frog_image, frog_position)] @ objects_images
+  objects_images @ [(frog_image, frog_position)]
   (* failwith *)
   (*   "Return a list with a single item: a tuple consisting of one of the choices \ *)
   (*    in [Images.t] in [scaffold.mli]; and the current position of the [Frog]." *)
